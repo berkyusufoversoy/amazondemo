@@ -1,0 +1,154 @@
+{
+ "size": [
+  1024,
+  1536
+ ],
+ "pieces": [
+  {
+   "id": "trousers",
+   "half": "",
+   "file": "trousers.webp",
+   "box": [
+    29.688,
+    51.432,
+    41.211,
+    45.768
+   ],
+   "score": 0.8309,
+   "manual": true
+  },
+  {
+   "id": "boots",
+   "half": "l",
+   "file": "boots-l.webp",
+   "box": [
+    25,
+    87.63,
+    16.352,
+    10.309
+   ],
+   "score": 0.9201
+  },
+  {
+   "id": "boots",
+   "half": "r",
+   "file": "boots-r.webp",
+   "box": [
+    58.789,
+    87.63,
+    16.352,
+    10.309
+   ],
+   "score": 0.9276
+  },
+  {
+   "id": "jacket",
+   "half": "",
+   "file": "jacket.webp",
+   "box": [
+    17.383,
+    15.365,
+    64.482,
+    38.245
+   ],
+   "score": 0.8904
+  },
+  {
+   "id": "harness",
+   "half": "",
+   "file": "harness.webp",
+   "box": [
+    32.031,
+    18.099,
+    35.331,
+    40.731
+   ],
+   "score": 0.7014
+  },
+  {
+   "id": "gloves",
+   "half": "l",
+   "file": "gloves-l.webp",
+   "box": [
+    18.359,
+    50.391,
+    10.898,
+    11.353
+   ],
+   "score": 0.9773
+  },
+  {
+   "id": "gloves",
+   "half": "r",
+   "file": "gloves-r.webp",
+   "box": [
+    69.727,
+    50.391,
+    10.898,
+    11.353
+   ],
+   "score": 0.9639
+  },
+  {
+   "id": "respirator",
+   "half": "",
+   "file": "respirator.webp",
+   "box": [
+    40.234,
+    4.036,
+    17.9,
+    14.168
+   ],
+   "score": 0.9345
+  },
+  {
+   "id": "goggles",
+   "half": "",
+   "file": "goggles.webp",
+   "box": [
+    39.844,
+    6.901,
+    18.018,
+    5.232
+   ],
+   "score": 0.9437
+  },
+  {
+   "id": "helmet",
+   "half": "",
+   "file": "helmet.webp",
+   "box": [
+    39.258,
+    0.521,
+    19.415,
+    8.354
+   ],
+   "score": 0.9859
+  },
+  {
+   "id": "earmuffs",
+   "half": "l",
+   "file": "earmuffs-l.webp",
+   "box": [
+    35.352,
+    4.167,
+    6.444,
+    9.321
+   ],
+   "score": 0.8394
+  },
+  {
+   "id": "earmuffs",
+   "half": "r",
+   "file": "earmuffs-r.webp",
+   "box": [
+    56.445,
+    4.297,
+    6.172,
+    8.984
+   ],
+   "score": 0.8403
+  }
+ ],
+ "assembled": "assembled.webp"
+}
