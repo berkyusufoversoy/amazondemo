@@ -7,8 +7,8 @@ import * as THREE from './vendor/three.module.js';
    loops them until the reader moves on. One WebGL pipeline renders it:
    · aerial layer   — the river/road-preserving forest → industry → city morph (photographic)
    · scene layer    — each workplace is filmed, not shown: the camera holds on one crew, then
-                      travels across the plate to the next (depth parallax + motion blur), and
-                      whip-pans sideways into the next workplace
+                      travels across the plate to the next (depth parallax), and rack-focuses
+                      into the next workplace — no blur, no whip pans
    · dives          — aerial → workplace builds from the farthest surfaces; back out nearest-first
    · bridge         — one construction shot; only the structural regions change state
    Without WebGL the <img> stack below is used as a plain still-image presentation.
@@ -142,12 +142,9 @@ function frameStop(x, y, zoom) {
 }
 function viewFor(name, within, exit = 0) {
   const s = scenes[name];
-  if (!s.stops) return {view:frameStop(.5, .5, 1), cam:new THREE.Vector4(), blur:new THREE.Vector2(), role:'', state:0, k:0};
+  if (!s.stops) return {view:frameStop(.5, .5, 1), cam:new THREE.Vector4(), role:'', state:0, k:0};
   const T = track(name, within), lerp = (a, b) => a + (b - a) * T.m;
   const view = frameStop(lerp(T.from.x, T.to.x), lerp(T.from.y, T.to.y), lerp(T.from.z, T.to.z));
-  // Motion blur follows the camera's travel on screen; it peaks mid-move and vanishes at each crew.
-  const blur = new THREE.Vector2();   // no motion blur: smeared pans read as vertigo while the page scrolls
-  if (blur.length() > .028) blur.setLength(.028);
   const drift = T.dwell - .5;
   const cam = new THREE.Vector4(.022 * T.dwell + .03 * exit, .006 * drift + pointer.x * .005, -.003 * drift + pointer.y * .003, 0);
   let state = 0;
@@ -157,7 +154,7 @@ function viewFor(name, within, exit = 0) {
     state = clamp((within - DWELL * .6) / (DWELL + MOVE + DWELL * .9 - DWELL * .6)) * (within < span ? 1 : 1);
     if (within >= span) state = 1;
   }
-  return {view, cam, blur, role:T.m > .5 ? T.to.role : T.from.role, state, k:T.k, n:s.stops.length, moving:T.from !== T.to,
+  return {view, cam, role:T.m > .5 ? T.to.role : T.from.role, state, k:T.k, n:s.stops.length, moving:T.from !== T.to,
     subject:{x:lerp(T.from.x, T.to.x), y:lerp(T.from.y, T.to.y)}};
 }
 
@@ -210,7 +207,7 @@ function loadTexture(path, color = true) {
     t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
     if (color) {t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;}   // mips power the rack-focus hand-over
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    if (renderer) renderer.initTexture(t);
+    if (renderer) {renderer.initTexture(t); lastUpload = performance.now();}
     return t;
   });
 }
@@ -238,7 +235,6 @@ function setSlot(slot, name, v) {
   sceneUniforms[`uDepth${slot}`].value = tex ? tex.depth : placeholder;
   sceneUniforms[`uView${slot}`].value.copy(v.view);
   sceneUniforms[`uCam${slot}`].value.copy(v.cam);
-  sceneUniforms[`uBlur${slot}`].value.copy(v.blur);
   sceneUniforms[`uReady${slot}`].value = tex ? 1 : 0;
   sceneUniforms[`uBridge${slot}`].value = scenes[name].bridge && bridgeReady ? 1 : 0;
   sceneUniforms[`uBridgeState${slot}`].value = v.state;
@@ -340,12 +336,46 @@ function checkLock() {
   const r = sectorRanges[film.lock], i = locate(film.u / totalUnits).i, last = beats[r.last];
   if (i < r.first || i > r.last || film.u >= last.start + last.hold) startCut(r.first);
 }
-let frameAvg = 16, minFrame = 0;
+/* Frame pacing. The film renders on every display frame up to ~60 fps (a 120/144 Hz screen skips frames).
+   Only sustained slowness counts — one long frame (a plate decoding, a tab switch) is clipped before it
+   is averaged. Can't hold 60: drop to 30. Can't hold 30 either: render fewer pixels (the plates are soft
+   photographs; it barely shows). Every few seconds the faster setting is tried again, backing off when it fails. */
+const pace = {avg:16.7, cap:13, scale:1, probeAt:0, wait:4000, since:0, slow:0};
+let rescale = () => {}, lastUpload = 0;                 // frames right after a plate upload don't count
+function retune(gap, time) {
+  pace.avg += (Math.min(gap, 50) - pace.avg) * .05;
+  if (pace.cap < 30) {
+    if (pace.avg > 22) {pace.cap = 30; pace.avg = 33.3; pace.probeAt = time + pace.wait; pace.wait = Math.min(pace.wait * 2, 64000);}
+    else if (time - pace.since > 8000) {
+      pace.wait = 4000; pace.since = time;
+      if (pace.scale < 1 && pace.avg < 18) {pace.scale += .25; rescale();}
+    }
+  } else if (pace.avg > 40) {
+    if (pace.scale > .5) {pace.scale -= .25; rescale(); pace.avg = 33.3; pace.slow = 0;}
+    else if (!pace.slow) pace.slow = time;
+    else if (time - pace.slow > 4000) goLite('the film cannot hold 25 fps on this machine');
+  } else {
+    pace.slow = 0;
+    if (time > pace.probeAt && pace.avg < 36) {pace.cap = 13; pace.avg = 16.7; pace.since = time;}
+  }
+}
+/* Lite: no GPU to spare (software rendering, or a GPU that can't carry the film). The still photographs
+   take over — they still change with the sector being read — and frosted glass becomes tinted glass,
+   because backdrop blur over a full page is the most expensive thing a software compositor can be asked. */
+function goLite(reason) {
+  document.documentElement.classList.add('lite');
+  if (renderer) renderer.setAnimationLoop(null);
+  ready = false; hud.on = false; stage.classList.remove('webgl'); canvas.style.opacity = '0';
+  const scan = document.querySelector('#scan-toggle'); if (scan) scan.style.display = 'none';
+  console.info('Lite presentation:', reason);
+  update(progress);
+}
 function tick(time) {
-  const dtMs = Math.min(time - lastFrame, 100);
-  if (!ready || document.hidden || dtMs < (covered ? 30 : minFrame)) return;
+  const gap = time - lastFrame;
+  if (!ready || document.hidden || gap < (covered ? 30 : pace.cap)) return;
   lastFrame = time;
-  const dt = dtMs * .001, playing = !paused && !reducedMotion.matches;
+  // The film clock follows real time down to 4 fps, so a slow machine sees the same film, just choppier.
+  const dt = Math.min(gap, 250) * .001, playing = !paused && !reducedMotion.matches;
   if (playing) {
     advance(dt);
     film.time += dt; hud.time = film.time;
@@ -356,9 +386,7 @@ function tick(time) {
   if (dirty) update(film.u / totalUnits);
   if (dirty) {
     dirty = false; renderFrame(locate(progress));
-    // Hold 60 fps where the GPU allows it; fall back to 30 fps on machines that can't keep up.
-    if (!covered) frameAvg += (dtMs - frameAvg) * .05;
-    minFrame = frameAvg > 22 ? 30 : frameAvg < 18 ? 0 : minFrame;
+    if (!covered && playing && time - lastUpload > 300) retune(gap, time);
   }
 }
 
@@ -372,8 +400,7 @@ const sceneShader = `
   varying vec2 vUv;
   uniform sampler2D uTexA,uDepthA,uTexB,uDepthB,uBridgeBefore,uBridgeComplete,uBridgeMask;
   uniform vec4 uViewA,uViewB,uCamA,uCamB;
-  uniform vec2 uBlurA,uBlurB,uWhip;
-  uniform float uReadyA,uReadyB,uBridgeA,uBridgeB,uBridgeStateA,uBridgeStateB,uMode,uT,uTime,uAspect,uDir,uScan,uScanPos;
+  uniform float uReadyA,uReadyB,uBridgeA,uBridgeB,uBridgeStateA,uBridgeStateB,uMode,uT,uTime,uAspect,uScan,uScanPos;
   // Depth scan: the plate's depth map read as a LiDAR survey — iso-depth contours (orange near, steel-blue
   // far), silhouette edges where depth jumps, the photograph dimmed underneath; revealed by a sweep line.
   // Depth maps are 8-bit and low-res: smooth them over a small disc before tracing, or contours stair-step.
@@ -418,15 +445,11 @@ const sceneShader = `
   vec3 tapB(vec2 s,out float d){vec2 uv=uViewB.xy+(s-.5)*uViewB.zw;vec2 p=lens(uDepthB,uv,uCamB,uViewB.xy);vec4 dd=texture2D(uDepthB,p);d=dd.g;vec3 c=texture2D(uTexB,p).rgb;return uBridgeB>.5?bridge(c,p,dd.r,uBridgeStateB):c;}
   vec3 shadeA(vec2 s,out float d){
     if(uReadyA<.5){d=0.;return vec3(.129,.145,.161);}
-    vec3 c=tapA(s,d);float l=length(uBlurA);
-    if(l>.0004){float dd;for(int i=1;i<=2;i++){float o=float(i)/2.-.25;c+=tapA(s-uBlurA*o,dd)+tapA(s+uBlurA*o,dd);}c/=5.;}
-    return c;
+    return tapA(s,d);
   }
   vec3 shadeB(vec2 s,out float d){
     if(uReadyB<.5){d=0.;return vec3(.129,.145,.161);}
-    vec3 c=tapB(s,d);float l=length(uBlurB);
-    if(l>.0004){float dd;for(int i=1;i<=2;i++){float o=float(i)/2.-.25;c+=tapB(s-uBlurB*o,dd)+tapB(s+uBlurB*o,dd);}c/=5.;}
-    return c;
+    return tapB(s,d);
   }
   // Defocus from the mip chain (smooth, no ghost copies), softened further with four small offset taps.
   vec3 defocus(sampler2D tex,vec2 p,float k){
@@ -435,29 +458,10 @@ const sceneShader = `
   }
   vec3 softA(vec2 s,float k){float d;if(k<.02)return tapA(s,d);vec2 uv=uViewA.xy+(s-.5)*uViewA.zw;return defocus(uTexA,lens(uDepthA,uv,uCamA,uViewA.xy),k);}
   vec3 softB(vec2 s,float k){float d;if(k<.02)return tapB(s,d);vec2 uv=uViewB.xy+(s-.5)*uViewB.zw;return defocus(uTexB,lens(uDepthB,uv,uCamB,uViewB.xy),k);}
-  vec3 strip(float x,float y){
-    // Two plates on one camera rail: B to the right of A, or below it when the camera tilts down.
-    float d;
-    if(uDir>1.5)return y<=1.?shadeA(vec2(x,y),d):shadeB(vec2(x,y-1.),d);
-    if(uDir>.5)return y>=0.?shadeA(vec2(x,y),d):shadeB(vec2(x,y+1.),d);
-    return x<1.?shadeA(vec2(x,y),d):shadeB(vec2(x-1.,y),d);
-  }
   void main(){
-    vec3 blue=vec3(.098,.098,.439),orange=vec3(.984,.337,.027);
-    float dA=0.,dB=0.;
-    float grain=fbm(vUv*vec2(uAspect,1.)*5.+vec2(uTime*.02,0.));
-    vec3 seam=mix(blue,orange,smoothstep(.35,.7,grain));
-    float t=uT,thr=1.08-t*1.16,live=step(.001,t)*(1.-step(.999,t));
+    float dA=0.;
     vec4 o;
     if(uMode<.5){vec3 c=shadeA(vUv,dA);o=vec4(uScan>.001?applyScan(c,scanDepth(uDepthA,uViewA)):c,1.);}
-    else if(uMode<1.5){
-      // Whip pan along the rail with directional blur at peak speed; a thin seam marks the cut.
-      float s=uWhip.x,v=uWhip.y;vec3 c=vec3(0.);
-      for(int i=0;i<5;i++){float o=(float(i)/4.-.5)*min(v*.012,.03);c+=uDir>1.5?strip(vUv.x,vUv.y+s+o):uDir>.5?strip(vUv.x,vUv.y-s+o):strip(vUv.x+s+o,vUv.y);}
-      c/=5.;
-      float seamLine=(uDir>1.5?exp(-pow((vUv.y-(1.-s))/(.0025+v*.01),2.)):uDir>.5?exp(-pow((vUv.y-s)/(.0025+v*.01),2.)):exp(-pow((vUv.x-(1.-s))/(.0025+v*.01),2.)))*live;
-      o=vec4(c+seam*seamLine*.55,1.);
-    }
     else if(uMode<2.5){
       // Arriving from above: while the aerial pushes in, the workplace resolves out of soft focus.
       float k=1.-smoothstep(.25,1.,uT),w=smoothstep(.2,.75,uT);
@@ -485,7 +489,11 @@ const sceneShader = `
 async function setupRenderer() {
   try {
     renderer = new THREE.WebGLRenderer({canvas, alpha:false, antialias:false, powerPreference:'high-performance'});
-    renderer.setPixelRatio(innerWidth < 760 ? Math.min(devicePixelRatio, 1.5) : 1);
+    const gl = renderer.getContext(), info = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    if (/swiftshader|basic render|llvmpipe|softpipe|software/i.test(gpu)) {renderer.dispose(); renderer = null; goLite('software WebGL (' + gpu + ')'); return;}
+    const basePixelRatio = innerWidth < 760 ? Math.min(devicePixelRatio, 1.5) : 1;
+    renderer.setPixelRatio(basePixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.autoClear = false;
     renderer.setClearColor(0x212529, 1);
@@ -512,10 +520,10 @@ async function setupRenderer() {
 
     aerialUniforms = {uForest:{value:aerialTex[0]}, uForestClear:{value:aerialTex[3]}, uIndustryMap:{value:aerialTex[1]}, uCityMap:{value:aerialTex[2]}, uPathMap:{value:pathMap},
       uIndustry:{value:0}, uCity:{value:0}, uJourney:{value:0}, uZoom:{value:0}, uZoomFocus:{value:new THREE.Vector2(.72, .52)}, uTime:{value:0}, uAspect:{value:1}, uImageAspect:{value:IMAGE_ASPECT}};
-    const v4 = () => ({value:new THREE.Vector4()}), v2 = () => ({value:new THREE.Vector2()});
+    const v4 = () => ({value:new THREE.Vector4()});
     sceneUniforms = {uTexA:{value:placeholder}, uDepthA:{value:placeholder}, uTexB:{value:placeholder}, uDepthB:{value:placeholder},
       uBridgeBefore:{value:placeholder}, uBridgeComplete:{value:placeholder}, uBridgeMask:{value:placeholder},
-      uViewA:v4(), uViewB:v4(), uDir:{value:0}, uCamA:v4(), uCamB:v4(), uBlurA:v2(), uBlurB:v2(), uWhip:v2(),
+      uViewA:v4(), uViewB:v4(), uCamA:v4(), uCamB:v4(),
       uReadyA:{value:0}, uReadyB:{value:0}, uBridgeA:{value:0}, uBridgeB:{value:0}, uBridgeStateA:{value:0}, uBridgeStateB:{value:0},
       uMode:{value:0}, uT:{value:0}, uTime:{value:0}, uAspect:{value:1}, uScan:{value:0}, uScanPos:{value:0}};
 
@@ -531,11 +539,14 @@ async function setupRenderer() {
       aerialUniforms.uAspect.value = sceneUniforms.uAspect.value = stage.clientWidth / stage.clientHeight;
       update(progress);
     };
+    // Compile both programs before going live (in parallel, off the main thread, where the browser offers
+    // KHR_parallel_shader_compile); the still images stay up meanwhile, so the page never freezes on it.
+    await Promise.all([renderer.compileAsync(aerialScene, camera), renderer.compileAsync(detailScene, camera)]);
     ready = true;
     resize(); new ResizeObserver(resize).observe(stage);
+    rescale = () => {renderer.setPixelRatio(basePixelRatio * pace.scale); resize();};
     stage.classList.add('webgl');
     canvas.style.opacity = '1';
-    renderer.compile(aerialScene, camera); renderer.compile(detailScene, camera);
     update(progress);
     renderer.setAnimationLoop(tick);
     canvas.addEventListener('webglcontextlost', e => {e.preventDefault(); ready = false; renderer.setAnimationLoop(null); stage.classList.remove('webgl'); canvas.style.opacity = '0';});
@@ -641,11 +652,13 @@ rows.forEach(r => io.observe(r));
 
 // Opaque sections (paper sheets, story) can cover the film completely; then nothing needs drawing.
 const sheets = [...document.querySelectorAll('.sheet, .story, .site-footer')];
+const bands = [...document.querySelectorAll('.brands')];                            // translucent, but nothing to track under them
 function measureCover() {
   const h = innerHeight;
   const rects = sheets.map(el => el.getBoundingClientRect());
   covered = rects.some(r => r.top <= 76 && r.bottom >= h);                       // under the opaque header
   document.body.classList.toggle('film-covered', rects.some(r => r.top <= 150 && r.bottom >= 92));   // caption sits on a sheet
+  hud.cover = [...rects, ...bands.map(el => el.getBoundingClientRect())].map(r => [r.top, r.bottom]);   // the viewfinder hides under these
   document.querySelector('.site-header').classList.toggle('scrolled', scrollY > 40);
   if (!covered) dirty = true;
 }
@@ -680,4 +693,4 @@ addEventListener('pointermove', e => {if (e.pointerType === 'mouse') {pointer.tx
 if (reducedMotion.matches) {paused = true; document.body.classList.add('film-paused');}
 reducedMotion.addEventListener('change', () => {paused = reducedMotion.matches; document.body.classList.toggle('film-paused', paused); dirty = true;});
 update(0); measureCover(); setupRenderer();
-if (debug) window.__journey = {film, beats, totalUnits, sectorRanges, locate, redraw:() => {dirty = true;}, isReady:() => ready && Object.keys(textures).length}
+if (debug) window.__journey = {film, pace, beats, totalUnits, sectorRanges, locate, redraw:() => {dirty = true;}, isReady:() => ready && Object.keys(textures).length}

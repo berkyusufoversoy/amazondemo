@@ -196,7 +196,9 @@
       const h = window.__filmHUD; if (!h) return;
       const inHero = !document.body.classList.contains('past-hero');
       // In the hero the headline owns the left half; lock on only to crews on the right there.
-      const want = h.on && h.role && (!inHero || h.x > .55) && h.x > .04 && h.x < .96 && h.y > .12 && h.y < .9;
+      // Never lock on to a crew that a section is covering: the reticle would show through the glass.
+      const Y0 = h.y * innerHeight, under = (h.cover || []).some(([top, bottom]) => Y0 > top - 70 && Y0 < bottom + 70);
+      const want = h.on && h.role && !under && (!inHero || h.x > .55) && h.x > .04 && h.x < .96 && h.y > .12 && h.y < .9;
       if (want) {
         const X = h.x * innerWidth, Y = h.y * innerHeight, k = h.scene + h.k;
         if (!shown || k !== key) {

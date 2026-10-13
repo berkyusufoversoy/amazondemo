@@ -388,6 +388,12 @@ main{position:relative;z-index:1}
   .glass,.tools a,.marquee a,.story,.scrolled .header-bar,.film-caption,.search{background:rgba(33,37,41,.95);backdrop-filter:none}
   .sheet,.spotlight{background:var(--paper);backdrop-filter:none}
 }
+/* Lite (set by app.js when there is no GPU to spare): same colours, no backdrop blur, a touch more opaque. */
+html.lite *,html.lite *::before,html.lite *::after{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+html.lite .glass,html.lite .tools a,html.lite .marquee a,html.lite .header-bar,html.lite .scrolled .header-bar,html.lite .film-caption,html.lite .search,html.lite .slide-shop .mini,html.lite .reticle-label{background:rgba(33,37,41,.86)}
+html.lite .story,html.lite .brands{background:rgba(33,37,41,.9)}
+html.lite .sheet,html.lite .spotlight,html.lite .own-turn{background:rgba(233,236,239,.95)}
+html.lite .turn-card,html.lite .ppe-tag,html.lite .ppe-total{background:rgba(255,255,255,.95)}
 
 /* =====================================================================================================
    v3 · Instrument. Modernist type (one family, heavy-expanded against ultralight), technical data in
@@ -720,4 +726,19 @@ h1 em,h2 em,.footer-claim em{font:inherit;font-weight:300;font-stretch:125%;lett
   .ppe-figure{display:flex;flex-direction:column;align-items:center}
   .ppe-note{position:static;transform:none;margin-top:10px}
   .ppe-tag{display:none}
+}
+
+/* Firefox puts the WebGL film on its own compositor layer, which backdrop-filter can't sample: glass over the
+   film would show it sharp. There the glass gets a denser tint instead of the frost (Chromium/WebKit keep it). */
+@supports (-moz-appearance:none){
+  .sheet{background-color:rgba(233,236,239,.93)}
+  .spotlight{background:rgba(233,236,239,.94)}
+  .story{background:rgba(25,25,112,.88)}
+  .brands{background:rgba(27,30,34,.86)}
+  .header-bar{background:rgba(27,30,34,.6)}
+  .scrolled .header-bar{background:rgba(27,30,34,.76)}
+  .glass,.tools a,.film-caption{background:rgba(27,30,34,.62)}
+  .slide-shop .mini{background:rgba(27,30,34,.7)}
+  .reticle-label{background:rgba(27,30,34,.74)}
+  .search{background:rgba(27,30,34,.5)}
 }
